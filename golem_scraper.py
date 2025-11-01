@@ -91,15 +91,15 @@ class GolemScraper:
             context = p.chromium.launch_persistent_context(
                 str(self.profile_dir),
                 headless=headless,
-                channel="chrome",  # Use system Chrome if available
                 args=[
                     '--disable-blink-features=AutomationControlled',  # Hide automation
                     '--disable-dev-shm-usage',
                     '--no-sandbox',
                 ],
-                ignore_default_args=['--enable-automation'],
+                ignore_default_args=['--enable-automation', '--headless'],  # Let Playwright handle new headless
                 viewport={'width': 1280, 'height': 720},
-                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                chromium_sandbox=False
             )
             
             page = context.pages[0] if context.pages else context.new_page()

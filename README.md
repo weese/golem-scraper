@@ -1,14 +1,20 @@
 # Golem.de Article Scraper
 
-A Python script to download articles from Golem.de for offline reading on e-readers. Designed for Golem Plus subscribers to access their subscribed content in EPUB format.
+A Python script to download articles from Golem.de for offline reading on e-readers. Designed for Golem Plus subscribers to access their subscribed content in clean, well-formatted EPUB files.
 
 ## Features
 
-- **Google OAuth Login**: Securely log in using your Google account
-- **RSS/OPML Support**: Fetch articles from RSS feeds or OPML collections
+- **Topic-Based Downloads**: Simply specify a topic (e.g., `security`, `ki`, `softwareentwicklung`)
+- **Google OAuth Login**: Securely log in using your Google account with persistent sessions
+- **Multi-Page Article Support**: Automatically follows pagination to download complete articles
 - **Full Content Download**: Downloads complete article text, images, and hyperlinks
-- **EPUB Output**: Creates e-reader-friendly EPUB files
-- **Batch Download**: Download multiple articles at once
+- **Clean EPUB Output**: E-reader-friendly EPUB files with:
+  - Embedded images
+  - Monospace fonts for code blocks
+  - German date formatting
+  - Source links
+  - No ads, navigation, or clutter
+- **Session Persistence**: Login once, then use headless mode for automated downloads
 - **Polite Scraping**: Includes delays between requests to be respectful to the server
 
 ## Installation
@@ -27,111 +33,137 @@ playwright install chromium
 
 ## Usage
 
-### Basic Usage
+### Quick Start
 
-Download all articles from the Softwareentwicklung RSS feed:
-
-```bash
-python golem_scraper.py
-```
-
-This will:
-1. Open a browser window for Google login
-2. Fetch all articles from the default feed
-3. Download each article with images
-4. Create an EPUB file in the `downloads/` directory
-
-### Custom Feed URL
-
-Download from a specific feed:
+Download security articles (default: 1 article):
 
 ```bash
-python golem_scraper.py "https://rss.golem.de/rss.php?feed=RSS2.0"
+python golem_scraper.py security
 ```
+
+Download 10 articles on AI/Machine Learning:
+
+```bash
+python golem_scraper.py ki -n 10
+```
+
+Download software development articles (default topic):
+
+```bash
+python golem_scraper.py -n 5
+```
+
+### Available Topics
+
+Popular Golem.de topics you can use:
+- `security` - Security & cybersecurity news
+- `softwareentwicklung` - Software development (default)
+- `ki` - AI & Machine Learning
+- `internet` - Internet & web news
+- `mobil` - Mobile devices
+- `wissenschaft` - Science & technology
 
 ### Advanced Options
 
 ```bash
-# Specify output filename
-python golem_scraper.py -o my_articles.epub
-
-# Limit number of articles
-python golem_scraper.py -n 10
+# Custom output filename
+python golem_scraper.py security -o my_security_articles.epub
 
 # Custom download directory
-python golem_scraper.py -d ~/Documents/golem
+python golem_scraper.py ki -d ~/Documents/golem
 
-# Show browser during login (helpful for debugging)
-python golem_scraper.py --visible
+# Headless mode (requires existing login session)
+python golem_scraper.py security -n 10 --headless
+
+# Debug mode (shows cookies, URLs, etc.)
+python golem_scraper.py security -n 2 --debug
 
 # Skip login (for public articles only)
-python golem_scraper.py --no-login
+python golem_scraper.py --no-login -n 5
 ```
 
-### Complete Example
+### Session Persistence & Headless Mode
 
+The script saves your login session, so you only need to log in once:
+
+1. **First run** (visible browser for login):
 ```bash
-python golem_scraper.py \
-  "https://rss.golem.de/rss.php?ms=softwareentwicklung&feed=OPML" \
-  -o softwareentwicklung.epub \
-  -n 20 \
-  --visible
+python golem_scraper.py security -n 10
+```
+
+2. **Subsequent runs** (headless mode, no browser window):
+```bash
+python golem_scraper.py ki -n 10 --headless
 ```
 
 ## Command Line Options
 
 | Option | Description |
 |--------|-------------|
-| `feed_url` | RSS or OPML feed URL (optional, defaults to Softwareentwicklung) |
-| `-o, --output` | Output EPUB filename |
+| `topic` | Topic to download (e.g., security, ki). Default: softwareentwicklung |
+| `-o, --output` | Output EPUB filename (default: `golem_{topic}_{timestamp}.epub`) |
 | `-d, --download-dir` | Directory to save downloads (default: `downloads`) |
-| `-n, --max-articles` | Maximum number of articles to download |
+| `-n, --max-articles` | Maximum number of articles to download (default: 1) |
 | `--no-login` | Skip login (only works for public articles) |
-| `--visible` | Show browser window during login |
+| `--headless` | Run browser in headless mode (requires existing login session) |
+| `--cookies` | Path to JSON file with cookies (alternative to automated login) |
+| `--debug` | Enable debug output |
 
 ## How It Works
 
-1. **Authentication**: Opens a browser using Playwright and navigates to the Golem.de login page. You manually authenticate via Google OAuth, and the script captures the session cookies.
+1. **Authentication**: Opens a browser using Playwright and navigates to the Golem.de login page. You manually authenticate via Google OAuth, and the script saves the session cookies to `downloads/browser_profile/`.
 
-2. **Feed Parsing**: Fetches the RSS or OPML feed and extracts article URLs.
+2. **Feed Construction**: Builds the RSS feed URL from the topic (e.g., `security` → `https://rss.golem.de/rss.php?ms=security`)
 
 3. **Content Download**: For each article:
    - Downloads the full HTML content
-   - Extracts the main article text
+   - Follows pagination links to get complete multi-page articles
    - Downloads all images
-   - Preserves hyperlinks
+   - Removes ads, navigation, teaser blocks, and other clutter
+   - Preserves hyperlinks and code blocks
 
-4. **EPUB Creation**: Packages everything into a well-formatted EPUB file with:
+4. **EPUB Creation**: Packages everything into a clean EPUB file with:
    - Table of contents
    - Embedded images
-   - Proper styling for e-readers
-   - Article metadata (author, date, source URL)
+   - Monospace fonts for code blocks
+   - German date formatting (e.g., "29. Oktober 2025, 10:36 Uhr")
+   - Source link at the end of each article
+   - Optimized styling for e-readers
 
 ## Output Format
 
 The generated EPUB files include:
 
-- **Article Title** as chapter heading
-- **Author and Date** (when available)
-- **Source URL** for reference
-- **Full Article Text** with formatting preserved
-- **Embedded Images** properly sized for e-readers
-- **Hyperlinks** to external resources
-- **Table of Contents** for easy navigation
+- **Clean Article Layout**: Starts directly with the article's own header (no metadata duplication)
+- **Multi-Page Articles**: All pages automatically combined into one chapter
+- **German Dates**: Human-friendly date format (e.g., "1. November 2025, 14:30 Uhr")
+- **Code Blocks**: Properly formatted with monospace fonts and gray backgrounds
+- **Embedded Images**: All images downloaded and included
+- **Source Link**: Clickable link at the end of each article
+- **Table of Contents**: Easy navigation between articles
+- **Topic in Filename**: e.g., `golem_security_20251101_143052.epub`
 
 ## Troubleshooting
 
 ### Login Issues
 
-- Use `--visible` flag to see what's happening during login
-- Make sure you complete the Google authentication in the browser window
-- The script will wait up to 2 minutes for login completion
+- The browser should open automatically - complete the Google authentication
+- If you see "This browser may not be secure" from Google, the script uses workarounds to appear as a regular browser
+- Session cookies are saved, so you only need to log in once
+- Use `--debug` flag to see detailed login information
+
+### Headless Mode Issues
+
+- Headless mode (`--headless`) only works if you've logged in before
+- First login must be done with a visible browser (without `--headless`)
+- After that, use `--headless` for automated downloads
 
 ### Missing Content
 
 - Ensure you're logged in with a Golem Plus account
-- Some articles may have different HTML structures
+- Some articles may require manual cookie consent - accept it in the browser
 - Check the console output for specific errors
+- Use `--debug` flag for detailed information
 
 ### Playwright Installation
 
