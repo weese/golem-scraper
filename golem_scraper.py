@@ -479,7 +479,7 @@ class GolemScraper:
             print(f"    Error downloading image {img_url}: {e}")
             return None
     
-    def create_epub(self, articles, output_filename):
+    def create_epub(self, articles, output_filename, topic=None):
         """
         Create an EPUB file from downloaded articles.
         """
@@ -489,7 +489,8 @@ class GolemScraper:
         
         # Set metadata
         book.set_identifier(f'golem-{datetime.now().strftime("%Y%m%d-%H%M%S")}')
-        book.set_title('Golem.de - Softwareentwicklung Articles')
+        topic_title = f' - {topic.title()}' if topic else ''
+        book.set_title(f'Golem.de{topic_title} Articles')
         book.set_language('de')
         book.add_author('Golem.de')
         
@@ -573,7 +574,7 @@ class GolemScraper:
         print(f"✓ EPUB created: {output_path}")
         return output_path
     
-    def scrape_feed(self, feed_url, output_filename=None, max_articles=None):
+    def scrape_feed(self, feed_url, output_filename=None, max_articles=None, topic=None):
         """
         Main method to scrape all articles from a feed.
         """
@@ -602,10 +603,11 @@ class GolemScraper:
         # Create EPUB
         if not output_filename:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_filename = f"golem_articles_{timestamp}.epub"
+            topic_part = f"_{topic}" if topic else ""
+            output_filename = f"golem{topic_part}_{timestamp}.epub"
         
         if articles_data:
-            self.create_epub(articles_data, output_filename)
+            self.create_epub(articles_data, output_filename, topic=topic)
             print(f"\n✓ Successfully downloaded {len(articles_data)} articles")
         else:
             print("\n✗ No articles were downloaded")
@@ -613,17 +615,22 @@ class GolemScraper:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Scrape articles from Golem.de for offline reading'
+        description='Scrape articles from Golem.de for offline reading',
+        epilog='Examples:\n'
+               '  %(prog)s security -n 10              # Download 10 security articles\n'
+               '  %(prog)s                              # Download softwareentwicklung (default)\n'
+               '  %(prog)s -o custom.epub               # Custom output filename\n',
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
-        'feed_url',
+        'topic',
         nargs='?',
-        default='https://rss.golem.de/rss.php?ms=softwareentwicklung',
-        help='RSS/OPML feed URL'
+        default='softwareentwicklung',
+        help='Topic to download (e.g., security, softwareentwicklung, ki). Default: softwareentwicklung'
     )
     parser.add_argument(
         '-o', '--output',
-        help='Output EPUB filename',
+        help='Output EPUB filename (default: golem_{topic}_{timestamp}.epub)',
         default=None
     )
     parser.add_argument(
@@ -659,6 +666,9 @@ def main():
     
     args = parser.parse_args()
     
+    # Construct feed URL from topic
+    feed_url = f'https://rss.golem.de/rss.php?ms={args.topic}'
+    
     scraper = GolemScraper(download_dir=args.download_dir, debug=args.debug)
     
     if not args.no_login:
@@ -683,9 +693,10 @@ def main():
     
     # Scrape articles
     scraper.scrape_feed(
-        args.feed_url,
+        feed_url,
         output_filename=args.output,
-        max_articles=args.max_articles
+        max_articles=args.max_articles,
+        topic=args.topic
     )
     
     print("\n✓ Done!")
