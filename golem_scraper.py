@@ -104,73 +104,57 @@ class GolemScraper:
             
             page = context.pages[0] if context.pages else context.new_page()
             
-            # Check if already logged in
+            # Check if already logged in by verifying session validity
             print("Checking if already logged in...")
-            page.goto("https://account.golem.de/user")
-            time.sleep(3)
-            
-            # Check URL and content to determine if logged in
-            current_url = page.url
-            content = page.content()
-            
-            # Multiple checks for login status
             is_logged_in = False
             
-            # Check 1: If we're on the account page (not redirected to login)
-            if "account.golem.de/user" in current_url and "login" not in current_url:
-                is_logged_in = True
-                print("  ✓ Account page accessible")
-            
-            # Check 2: Check for logout/account-related elements
-            if "logout" in content.lower() or "abmelden" in content.lower():
-                is_logged_in = True
-                print("  ✓ Found logout link")
-            
-            # Check 3: Check cookies for session indicators
-            cookies = context.cookies()
-            cookie_names = [c['name'] for c in cookies]
-            
-            if self.debug:
-                print(f"\n  [DEBUG] Found {len(cookies)} cookies:")
-                for cookie in cookies[:10]:  # Show first 10
-                    print(f"    - {cookie['name']}: {cookie['value'][:20]}...")
-            
-            if any('session' in name.lower() or 'auth' in name.lower() for name in cookie_names):
-                is_logged_in = True
-                print("  ✓ Found session cookies")
-            
-            # Check 4: Try accessing a Plus article (only if page is still open)
+            # The definitive check: Try to access a Plus article
             try:
                 test_article = "https://www.golem.de/news/softwareentwicklung-mit-sycl-parallel-programmieren-fuer-fast-jede-plattform-2510-201445.html"
                 page.goto(test_article)
-                time.sleep(2)
+                time.sleep(3)
+                
+                current_url = page.url
                 article_content = page.content()
                 
-                # Look for paywall indicators
-                if "golem pur" in article_content.lower() or "cookies zustimmen" in article_content.lower():
-                    # Cookie consent might be needed, but could still be logged in
-                    print("  ℹ Cookie consent detected (might need manual acceptance)")
-                    if self.debug:
-                        print(f"  [DEBUG] Current URL: {page.url}")
-                elif "abo" in article_content.lower() and "anmelden" in article_content.lower():
-                    # Looks like we need to subscribe/login
+                if self.debug:
+                    print(f"  [DEBUG] Current URL: {current_url}")
+                    print(f"  [DEBUG] Page title: {page.title()[:80]}")
+                    cookies = context.cookies()
+                    print(f"  [DEBUG] Found {len(cookies)} cookies")
+                
+                # Check if we're being redirected to login or seeing a paywall
+                if "login" in current_url.lower():
+                    is_logged_in = False
+                    print("  ✗ Redirected to login page")
+                elif "golem plus" in article_content.lower() and "anmelden" in article_content.lower():
+                    # Clear paywall text
                     is_logged_in = False
                     print("  ✗ Paywall detected - not logged in")
+                elif "bereits pur-leser" in article_content.lower() or "cookies zustimmen" in article_content.lower():
+                    # Cookie consent page, but probably logged in
+                    # Check if we can see the account info
+                    page.goto("https://account.golem.de/user")
+                    time.sleep(2)
+                    account_url = page.url
+                    
+                    if "login" in account_url:
+                        is_logged_in = False
+                        print("  ✗ Session expired - redirected to login")
+                    else:
+                        is_logged_in = True
+                        print("  ✓ Session valid (cookie consent page shown)")
                 else:
-                    # Article seems accessible
+                    # Article content appears to be accessible
                     is_logged_in = True
-                    print("  ✓ Article content accessible")
-                
-                if self.debug:
-                    print(f"\n  [DEBUG] Current URL: {current_url}")
-                    print(f"  [DEBUG] Page title: {page.title()[:80]}")
-                    print(f"  [DEBUG] Content length: {len(article_content)} chars")
+                    print("  ✓ Session valid - Plus article accessible")
+                    
             except Exception as e:
-                # Page might be closed due to cookie consent, but we have cookies
+                # If there's an error, assume not logged in
                 if self.debug:
-                    print(f"  [DEBUG] Could not check article access: {e}")
-                # If we got this far with session cookies, assume logged in
-                pass
+                    print(f"  [DEBUG] Error checking login status: {e}")
+                is_logged_in = False
+                print("  ✗ Could not verify session")
             
             print(f"\nLogin status: {'✓ LOGGED IN' if is_logged_in else '✗ NOT LOGGED IN'}")
             
@@ -214,9 +198,22 @@ class GolemScraper:
                     print("✓ Login successful!")
                     
                 except PlaywrightTimeout:
-                    print("\n✗ Login timeout. The browser will stay open for manual completion.")
-                    print("Press Enter after you've logged in successfully...")
-                    input()
+                    print("\n✗ Login timeout.")
+                    print("Checking if login completed anyway...")
+                    # Sometimes login works but redirect detection fails
+                    # Check if we're on golem.de now
+                    try:
+                        current_url = page.url
+                        if "golem.de" in current_url and "google" not in current_url:
+                            print("✓ Login appears to have succeeded despite timeout!")
+                        else:
+                            print(f"Still on: {current_url}")
+                            print("Please complete login in the browser, then run the script again.")
+                            context.close()
+                            return False
+                    except Exception:
+                        context.close()
+                        return False
             
             # Extract cookies for use with requests
             self.cookies = {}
