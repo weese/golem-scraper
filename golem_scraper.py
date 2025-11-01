@@ -401,14 +401,6 @@ class GolemScraper:
                 for nav in content.find_all('nav'):
                     nav.decompose()
                 
-                # Remove go-media__wrap class from divs (but keep the div itself)
-                for media_wrap in content.find_all(class_='go-media__wrap'):
-                    if 'go-media__wrap' in media_wrap.get('class', []):
-                        media_wrap['class'].remove('go-media__wrap')
-                        # If no classes left, remove the class attribute entirely
-                        if not media_wrap.get('class'):
-                            del media_wrap['class']
-                
                 # Cut off content AFTER go-article-end (e.g., comments, related articles)
                 article_end = content.find(class_='go-article-end')
                 if article_end:
@@ -501,24 +493,6 @@ class GolemScraper:
         book.set_language('de')
         book.add_author('Golem.de')
         
-        # Define CSS style (used for both EPUB and HTML export)
-        style = '''
-        body { font-family: Georgia, serif; margin: 2em; line-height: 1.6; }
-        h1 { font-size: 1.5em; color: #333; border-bottom: 2px solid #666; padding-bottom: 0.3em; margin-top: 1em; }
-        h2 { font-size: 1.3em; color: #444; margin-top: 1em; }
-        h3 { font-size: 1.1em; color: #555; margin-top: 0.8em; }
-        img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
-        a { color: #0066cc; text-decoration: none; }
-        hr { border: 0; border-top: 1px solid #ccc; margin: 2em 0; }
-        p { margin: 0.8em 0; }
-        /* Page break support for different e-readers */
-        div[style*="page-break-before"] {
-            page-break-before: always;
-            -webkit-column-break-before: always;
-            break-before: always;
-        }
-        '''
-        
         chapters = []
         
         for idx, article in enumerate(articles, 1):
@@ -537,8 +511,6 @@ class GolemScraper:
             # Build chapter content - start directly with article (no metadata header)
             # Add page break before each article (except the first one)
             content_html = ""
-            if idx > 1:
-                content_html += '<div style="page-break-before: always;"></div>'
             
             # Add article content directly (which includes its own header)
             soup = BeautifulSoup(article['html'], 'html.parser')
@@ -585,46 +557,12 @@ class GolemScraper:
             chapter.content = content_html
             book.add_item(chapter)
             chapters.append(chapter)
-            
-            # Save HTML to file for inspection
-            html_output_dir = self.download_dir / "html_output"
-            html_output_dir.mkdir(exist_ok=True)
-            html_file = html_output_dir / f"article_{idx}_{article['title'][:50].replace('/', '-')}.html"
-            try:
-                with open(html_file, 'w', encoding='utf-8') as f:
-                    f.write(f"""<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <title>{article['title']}</title>
-    <style>
-        {style}
-    </style>
-</head>
-<body>
-{content_html}
-</body>
-</html>""")
-                if self.debug:
-                    print(f"    Saved HTML to: {html_file}")
-            except Exception as e:
-                if self.debug:
-                    print(f"    Could not save HTML: {e}")
-        
+                    
         # Add navigation
         book.toc = tuple(chapters)
         book.add_item(epub.EpubNcx())
         book.add_item(epub.EpubNav())
-        
-        # Add CSS to EPUB
-        nav_css = epub.EpubItem(
-            uid="style_nav",
-            file_name="style/nav.css",
-            media_type="text/css",
-            content=style
-        )
-        book.add_item(nav_css)
-        
+                
         # Create spine
         book.spine = ['nav'] + chapters
         
@@ -696,7 +634,7 @@ def main():
     parser.add_argument(
         '-n', '--max-articles',
         type=int,
-        help='Maximum number of articles to download (default: 1 for testing)',
+        help='Maximum number of articles to download (default: 10)',
         default=1
     )
     parser.add_argument(
