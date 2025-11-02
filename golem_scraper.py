@@ -91,6 +91,7 @@ class GolemScraper:
             context = p.chromium.launch_persistent_context(
                 str(self.profile_dir),
                 headless=headless,
+                channel="chrome",  # Use system Chrome (important for cookie persistence!)
                 args=[
                     '--disable-blink-features=AutomationControlled',  # Hide automation
                     '--disable-dev-shm-usage',
@@ -242,7 +243,17 @@ class GolemScraper:
                 )
         
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Cache-Control': 'max-age=0'
         })
         
         if self.debug:
@@ -297,11 +308,132 @@ class GolemScraper:
                 )
         
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Cache-Control': 'max-age=0'
         })
         
         print("✓ Cookies loaded successfully")
         return True
+    
+    def scrape_plus_archive(self, max_articles=None):
+        """
+        Scrape the Golem Plus archive page to get all Plus article links.
+        Follows pagination to get all articles.
+        """
+        print("\nScraping Golem Plus archive page...")
+        
+        articles = []
+        seen_urls = set()
+        current_url = 'https://www.golem.de/specials/golemplus/'
+        page_num = 1
+        
+        try:
+            while current_url:
+                if page_num > 1:
+                    print(f"  Scraping page {page_num}...")
+                
+                if self.debug:
+                    print(f"  [DEBUG] Requesting URL: {current_url}")
+                    print(f"  [DEBUG] Cookies: {len(self.session.cookies)} cookies")
+                    print(f"  [DEBUG] Headers: User-Agent={self.session.headers.get('User-Agent', 'None')[:50]}...")
+                
+                response = self.session.get(current_url, timeout=30)
+                
+                if self.debug:
+                    print(f"  [DEBUG] Response status: {response.status_code}")
+                    print(f"  [DEBUG] Response headers: {dict(list(response.headers.items())[:3])}")
+                
+                response.raise_for_status()
+                
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                # Find article links with the specific teaser class
+                article_links = soup.find_all('a', class_='go-teaser__link', href=re.compile(r'/news/.*\.html'))
+                
+                page_articles = 0
+                for link in article_links:
+                    url = link.get('href')
+                    if url:
+                        # Make URL absolute
+                        if url.startswith('/'):
+                            url = f'https://www.golem.de{url}'
+                        
+                        if url not in seen_urls:
+                            seen_urls.add(url)
+                            
+                            # Get title from link text
+                            title = link.get_text(strip=False).strip()
+                            
+                            articles.append({
+                                'title': title or 'Untitled',
+                                'url': url,
+                                'published': '',
+                                'summary': ''
+                            })
+                            page_articles += 1
+                
+                if page_articles > 0:
+                    print(f"  Found {page_articles} articles on page {page_num}")
+                
+                # Look for next page link
+                next_link = None
+                
+                # Find the pagination nav element
+                pagination_nav = soup.find('nav', class_='go-pagination')
+                if pagination_nav:
+                    # Look for link containing "Nächste Seite" text
+                    for link in pagination_nav.find_all('a', class_='go-pagination__link'):
+                        if 'Nächste Seite' in link.get_text():
+                            next_href = link.get('href')
+                            if next_href:
+                                next_link = urljoin(current_url, next_href)
+                                if self.debug:
+                                    print(f"  [DEBUG] Found next page: {next_link}")
+                                break
+                
+                if next_link and next_link != current_url:
+                    current_url = next_link
+                    page_num += 1
+                    time.sleep(1)  # Be polite between page requests
+                else:
+                    if self.debug:
+                        print(f"  [DEBUG] No next page link found, stopping pagination")
+                    break
+                
+                if len(articles) > max_articles:
+                    break
+            
+            print(f"\nTotal: Found {len(articles)} Plus articles across {page_num} page(s)")
+            return articles
+            
+        except requests.exceptions.HTTPError as e:
+            print(f"\n✗ Error scraping Plus archive: {e}")
+            if e.response.status_code == 400:
+                print("  This usually means:")
+                print("  - Your session has expired (try logging in again)")
+                print("  - Your cookies are invalid")
+                print("  - The website is blocking automated access")
+                print("\n  Try running the command without --headless first to refresh your login.")
+            if self.debug:
+                print(f"  [DEBUG] Response content preview: {e.response.text[:500]}")
+                import traceback
+                traceback.print_exc()
+            return articles  # Return what we got so far
+        except Exception as e:
+            print(f"\n✗ Error scraping Plus archive: {e}")
+            if self.debug:
+                import traceback
+                traceback.print_exc()
+            return articles  # Return what we got so far
     
     def fetch_rss_feed(self, feed_url):
         """
@@ -311,18 +443,12 @@ class GolemScraper:
         
         response = self.session.get(feed_url) if self.session else requests.get(feed_url)
         
-        if self.debug:
-            print(f"  [DEBUG] Response status: {response.status_code}")
-            print(f"  [DEBUG] Response content length: {len(response.text)}")
-        
         # Check if it's OPML
         if 'opml' in feed_url.lower() or '<opml' in response.text[:200].lower():
             return self.parse_opml(response.text)
         else:
             # Parse as RSS
             feed = feedparser.parse(response.text)
-            if self.debug:
-                print(f"  [DEBUG] feedparser found {len(feed.entries)} entries")
             articles = []
             for entry in feed.entries:
                 articles.append({
@@ -379,14 +505,14 @@ class GolemScraper:
             soup = BeautifulSoup(response.content, 'html.parser')
             
             title = soup.find('h1')
-            title_text = title.get_text(strip=True) if title else "Untitled"
+            title_text = title.get_text(strip=False).strip() if title else "Untitled"
             
             author = None
             date = None
             
             author_elem = soup.find(class_=re.compile('author|byline'))
             if author_elem:
-                author = author_elem.get_text(strip=True)
+                author = author_elem.get_text(strip=False).strip()
             
             date_elem = soup.find('time') or soup.find(class_=re.compile('date|published'))
             if date_elem:
@@ -614,15 +740,35 @@ class GolemScraper:
         print(f"✓ EPUB created: {output_path}")
         return output_path
     
-    def scrape_feed(self, feed_url, output_filename=None, max_articles=None, topic=None):
+    def scrape_feed(self, feed_url=None, output_filename=None, max_articles=None, topic=None, use_plus_archive=False, list_only=False):
         """
-        Main method to scrape all articles from a feed.
+        Main method to scrape all articles from a feed or Plus archive.
         """
-        # Fetch article list from feed
-        articles_meta = self.fetch_rss_feed(feed_url)
+        # Fetch article list from feed or Plus archive
+        if use_plus_archive:
+            articles_meta = self.scrape_plus_archive(max_articles=max_articles)
+        else:
+            articles_meta = self.fetch_rss_feed(feed_url)
         
         if max_articles:
             articles_meta = articles_meta[:max_articles]
+        
+        # If list-only mode, just display the articles and exit
+        if list_only:
+            print(f"\n{'='*80}")
+            print(f"Found {len(articles_meta)} articles:")
+            print(f"{'='*80}\n")
+            for idx, article_meta in enumerate(articles_meta, 1):
+                print(f"[{idx}] {article_meta['title']}")
+                print(f"    URL: {article_meta['url']}")
+                if article_meta.get('published'):
+                    date_str = self.format_german_date(article_meta['published'])
+                    print(f"    Date: {date_str}")
+                print()
+            print(f"{'='*80}")
+            print(f"Total: {len(articles_meta)} articles")
+            print(f"{'='*80}")
+            return
         
         print(f"\nDownloading {len(articles_meta)} articles...")
         
@@ -643,11 +789,15 @@ class GolemScraper:
         # Create EPUB
         if not output_filename:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            topic_part = f"_{topic}" if topic else ""
-            output_filename = f"golem{topic_part}_{timestamp}.epub"
+            if use_plus_archive:
+                output_filename = f"golem_plus_archive_{timestamp}.epub"
+            else:
+                topic_part = f"_{topic}" if topic else ""
+                output_filename = f"golem{topic_part}_{timestamp}.epub"
         
         if articles_data:
-            self.create_epub(articles_data, output_filename, topic=topic)
+            epub_topic = "Plus Archive" if use_plus_archive else topic
+            self.create_epub(articles_data, output_filename, topic=epub_topic)
             print(f"\n✓ Successfully downloaded {len(articles_data)} articles")
         else:
             print("\n✗ No articles were downloaded")
@@ -658,6 +808,7 @@ def main():
         description='Scrape articles from Golem.de for offline reading',
         epilog='Examples:\n'
                '  %(prog)s security -n 10              # Download 10 security articles\n'
+               '  %(prog)s plus-archive -n 20          # Download 20 articles from Plus archive\n'
                '  %(prog)s                              # Download softwareentwicklung (default)\n'
                '  %(prog)s -o custom.epub               # Custom output filename\n',
         formatter_class=argparse.RawDescriptionHelpFormatter
@@ -666,7 +817,7 @@ def main():
         'topic',
         nargs='?',
         default='softwareentwicklung',
-        help='Topic to download (e.g., security, softwareentwicklung, ki). Default: softwareentwicklung'
+        help='Topic to download (e.g., security, softwareentwicklung, ki, plus-archive). Use "plus-archive" to download all Golem Plus articles. Default: softwareentwicklung'
     )
     parser.add_argument(
         '-o', '--output',
@@ -703,11 +854,19 @@ def main():
         action='store_true',
         help='Enable debug output (shows cookies, page content snippets, etc.)'
     )
+    parser.add_argument(
+        '--list-only',
+        action='store_true',
+        help='Only list articles without downloading them'
+    )
     
     args = parser.parse_args()
     
-    # Construct feed URL from topic
-    feed_url = f'https://rss.golem.de/rss.php?ms={args.topic}'
+    # Construct feed URL from topic (unless using Plus archive)
+    if args.topic == 'plus-archive':
+        feed_url = None
+    else:
+        feed_url = f'https://rss.golem.de/rss.php?ms={args.topic}'
     
     scraper = GolemScraper(download_dir=args.download_dir, debug=args.debug)
     
@@ -733,10 +892,12 @@ def main():
     
     # Scrape articles
     scraper.scrape_feed(
-        feed_url,
+        feed_url=feed_url,
         output_filename=args.output,
         max_articles=args.max_articles,
-        topic=args.topic
+        topic=args.topic,
+        use_plus_archive=(args.topic == 'plus-archive'),
+        list_only=args.list_only
     )
     
     print("\n✓ Done!")

@@ -5,6 +5,7 @@ A Python script to download articles from Golem.de for offline reading on e-read
 ## Features
 
 - **Topic-Based Downloads**: Simply specify a topic (e.g., `security`, `ki`, `softwareentwicklung`)
+- **Plus Archive Download**: Download all articles from the Golem Plus archive page in one command
 - **Google OAuth Login**: Securely log in using your Google account with persistent sessions
 - **Multi-Page Article Support**: Automatically follows pagination to download complete articles
 - **Full Content Download**: Downloads complete article text, images, and hyperlinks
@@ -62,10 +63,14 @@ Popular Golem.de topics you can use:
 - `internet` - Internet & web news
 - `mobil` - Mobile devices
 - `wissenschaft` - Science & technology
+- `plus-archive` - All articles from the Golem Plus archive page
 
 ### Advanced Options
 
 ```bash
+# Download all articles from Golem Plus archive
+python golem_scraper.py plus-archive -n 20
+
 # Custom output filename
 python golem_scraper.py security -o my_security_articles.epub
 
@@ -100,7 +105,7 @@ python golem_scraper.py ki -n 10 --headless
 
 | Option | Description |
 |--------|-------------|
-| `topic` | Topic to download (e.g., security, ki). Default: softwareentwicklung |
+| `topic` | Topic to download (e.g., security, ki, plus-archive). Default: softwareentwicklung |
 | `-o, --output` | Output EPUB filename (default: `golem_{topic}_{timestamp}.epub`) |
 | `-d, --download-dir` | Directory to save downloads (default: `downloads`) |
 | `-n, --max-articles` | Maximum number of articles to download (default: 1) |
