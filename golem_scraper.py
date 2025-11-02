@@ -216,19 +216,37 @@ class GolemScraper:
                         return False
             
             # Extract cookies for use with requests
-            self.cookies = {}
+            # Store as list of dicts to preserve domain information
+            self.cookies = []
             for cookie in context.cookies():
-                self.cookies[cookie['name']] = cookie['value']
+                self.cookies.append({
+                    'name': cookie['name'],
+                    'value': cookie['value'],
+                    'domain': cookie.get('domain', ''),
+                    'path': cookie.get('path', '/')
+                })
             
             # Close browser
             context.close()
             
         # Create a requests session with the cookies
         self.session = requests.Session()
-        self.session.cookies.update(self.cookies)
+        # Add only golem.de cookies to the session
+        for cookie in self.cookies:
+            if 'golem.de' in cookie['domain']:
+                self.session.cookies.set(
+                    cookie['name'],
+                    cookie['value'],
+                    domain=cookie['domain'],
+                    path=cookie['path']
+                )
+        
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
         })
+        
+        if self.debug:
+            print(f"  [DEBUG] Added {len([c for c in self.cookies if 'golem.de' in c['domain']])} golem.de cookies to session")
         
         return True
     
@@ -248,17 +266,36 @@ class GolemScraper:
         with open(cookies_file, 'r') as f:
             cookies_data = json.load(f)
         
-        self.cookies = {}
+        self.cookies = []
         if isinstance(cookies_data, list):
             # Format: [{name: "...", value: "...", domain: "..."}, ...]
             for cookie in cookies_data:
-                self.cookies[cookie['name']] = cookie['value']
+                self.cookies.append({
+                    'name': cookie['name'],
+                    'value': cookie['value'],
+                    'domain': cookie.get('domain', '.golem.de'),
+                    'path': cookie.get('path', '/')
+                })
         elif isinstance(cookies_data, dict):
             # Format: {name: value, name2: value2, ...}
-            self.cookies = cookies_data
+            for name, value in cookies_data.items():
+                self.cookies.append({
+                    'name': name,
+                    'value': value,
+                    'domain': '.golem.de',
+                    'path': '/'
+                })
         
         self.session = requests.Session()
-        self.session.cookies.update(self.cookies)
+        for cookie in self.cookies:
+            if 'golem.de' in cookie['domain']:
+                self.session.cookies.set(
+                    cookie['name'],
+                    cookie['value'],
+                    domain=cookie['domain'],
+                    path=cookie['path']
+                )
+        
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
         })
@@ -274,12 +311,18 @@ class GolemScraper:
         
         response = self.session.get(feed_url) if self.session else requests.get(feed_url)
         
+        if self.debug:
+            print(f"  [DEBUG] Response status: {response.status_code}")
+            print(f"  [DEBUG] Response content length: {len(response.text)}")
+        
         # Check if it's OPML
         if 'opml' in feed_url.lower() or '<opml' in response.text[:200].lower():
             return self.parse_opml(response.text)
         else:
             # Parse as RSS
             feed = feedparser.parse(response.text)
+            if self.debug:
+                print(f"  [DEBUG] feedparser found {len(feed.entries)} entries")
             articles = []
             for entry in feed.entries:
                 articles.append({
