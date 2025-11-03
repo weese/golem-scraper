@@ -645,6 +645,53 @@ class GolemScraper:
             print(f"    Error downloading image {img_url}: {e}")
             return None
     
+    def group_articles_by_month(self, articles):
+        """
+        Group articles by year and month based on their publication date.
+        Returns a dictionary with (year, month) tuples as keys.
+        """
+        from collections import defaultdict
+        
+        grouped = defaultdict(list)
+        articles_without_date = []
+        
+        for article in articles:
+            date_str = article.get('date')
+            
+            if not date_str:
+                articles_without_date.append(article)
+                continue
+            
+            try:
+                # Parse the date
+                if 'T' in date_str:
+                    dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                else:
+                    # Try parsing as simple date
+                    dt = datetime.strptime(date_str.split()[0], '%Y-%m-%d')
+                
+                # Group by (year, month) tuple
+                year_month = (dt.year, dt.month)
+                grouped[year_month].append(article)
+                
+                if self.debug:
+                    print(f"  [DEBUG] Article '{article['title'][:50]}' -> {dt.year}-{dt.month:02d}")
+            
+            except Exception as e:
+                if self.debug:
+                    print(f"  [DEBUG] Could not parse date '{date_str}' for article '{article['title'][:50]}': {e}")
+                articles_without_date.append(article)
+        
+        # Add articles without dates to a special group (use current date)
+        if articles_without_date:
+            now = datetime.now()
+            unknown_group = (now.year, now.month)
+            if self.debug:
+                print(f"  [DEBUG] {len(articles_without_date)} articles without date, grouping to {now.year}-{now.month:02d}")
+            grouped[unknown_group].extend(articles_without_date)
+        
+        return grouped
+    
     def create_epub(self, articles, output_filename, topic=None):
         """
         Create an EPUB file from downloaded articles.
@@ -740,7 +787,7 @@ class GolemScraper:
         print(f"✓ EPUB created: {output_path}")
         return output_path
     
-    def scrape_feed(self, feed_url=None, output_filename=None, max_articles=None, topic=None, use_plus_archive=False, list_only=False):
+    def scrape_feed(self, feed_url=None, output_filename=None, max_articles=None, topic=None, use_plus_archive=False, list_only=False, group_by_month=False):
         """
         Main method to scrape all articles from a feed or Plus archive.
         """
@@ -786,31 +833,70 @@ class GolemScraper:
             # Be polite - add delay between requests
             time.sleep(2)
         
-        # Create EPUB
-        if not output_filename:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            if use_plus_archive:
-                output_filename = f"golem_plus_archive_{timestamp}.epub"
-            else:
-                topic_part = f"_{topic}" if topic else ""
-                output_filename = f"golem{topic_part}_{timestamp}.epub"
+        if not articles_data:
+            print("\n✗ No articles were downloaded")
+            return
         
-        if articles_data:
+        # Group by month if requested
+        if group_by_month:
+            print(f"\nGrouping {len(articles_data)} articles by year-month...")
+            grouped_articles = self.group_articles_by_month(articles_data)
+            
+            print(f"Creating {len(grouped_articles)} EPUB files (one per month)...\n")
+            
+            epub_files_created = 0
+            for year_month, articles_in_group in sorted(grouped_articles.items()):
+                year, month = year_month
+                month_name = datetime(year, month, 1).strftime('%B')
+                
+                # Create filename for this group
+                if use_plus_archive:
+                    group_filename = f"golem_{year}_{month:02d}_plus_archive.epub"
+                else:
+                    group_filename = f"golem_{year}_{month:02d}_{topic}.epub"
+                
+                if output_filename:
+                    # If user specified a filename, use it as base and add year-month
+                    base_name = output_filename.replace('.epub', '')
+                    group_filename = f"{base_name}_{year}_{month:02d}.epub"
+                
+                print(f"Creating EPUB for {month_name} {year} ({len(articles_in_group)} articles)...")
+                
+                epub_topic = f"{month_name} {year}"
+                if use_plus_archive:
+                    epub_topic = f"Plus Archive - {month_name} {year}"
+                elif topic:
+                    epub_topic = f"{topic.title()} - {month_name} {year}"
+                
+                self.create_epub(articles_in_group, group_filename, topic=epub_topic)
+                epub_files_created += 1
+            
+            print(f"\n✓ Successfully created {epub_files_created} EPUB files with {len(articles_data)} articles")
+        else:
+            # Create single EPUB
+            if not output_filename:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                if use_plus_archive:
+                    output_filename = f"golem_plus_archive_{timestamp}.epub"
+                else:
+                    topic_part = f"_{topic}" if topic else ""
+                    output_filename = f"golem{topic_part}_{timestamp}.epub"
+            
             epub_topic = "Plus Archive" if use_plus_archive else topic
             self.create_epub(articles_data, output_filename, topic=epub_topic)
             print(f"\n✓ Successfully downloaded {len(articles_data)} articles")
-        else:
-            print("\n✗ No articles were downloaded")
 
 
 def main():
     parser = argparse.ArgumentParser(
         description='Scrape articles from Golem.de for offline reading',
         epilog='Examples:\n'
-               '  %(prog)s security -n 10              # Download 10 security articles\n'
-               '  %(prog)s plus-archive -n 20          # Download 20 articles from Plus archive\n'
-               '  %(prog)s                              # Download softwareentwicklung (default)\n'
-               '  %(prog)s -o custom.epub               # Custom output filename\n',
+               '  %(prog)s security -n 10                      # Download 10 security articles\n'
+               '  %(prog)s plus-archive -n 20                  # Download 20 articles from Plus archive\n'
+               '  %(prog)s plus-archive -n 200 --group-by-month # Download 200 Plus articles, grouped by month\n'
+               '  %(prog)s security -n 50 --group-by-month     # Download 50 security articles, one EPUB per month\n'
+               '  %(prog)s                                      # Download softwareentwicklung (default)\n'
+               '  %(prog)s -o custom.epub                       # Custom output filename\n',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
@@ -859,6 +945,11 @@ def main():
         action='store_true',
         help='Only list articles without downloading them'
     )
+    parser.add_argument(
+        '--group-by-month',
+        action='store_true',
+        help='Group articles by year-month and create one EPUB per month'
+    )
     
     args = parser.parse_args()
     
@@ -897,7 +988,8 @@ def main():
         max_articles=args.max_articles,
         topic=args.topic,
         use_plus_archive=(args.topic == 'plus-archive'),
-        list_only=args.list_only
+        list_only=args.list_only,
+        group_by_month=args.group_by_month
     )
     
     print("\n✓ Done!")
